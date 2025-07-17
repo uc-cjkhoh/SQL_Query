@@ -18,11 +18,12 @@ WITH
         SELECT 
             cdr.clg_mcc_ref,
             cc.country_code AS dial_no,
-            LENGTH(CAST(cc.country_code AS STRING)) as dial_no_len,
-            cdr.clg_num,
-            LENGTH(CAST(cdr.clg_num AS STRING)) AS clg_length,
-            cdr.cld_num,
-            LENGTH(CAST(cdr.cld_num AS STRING)) AS cld_length
+            LENGTH(CAST(cc.country_code AS STRING)) as dial_no_len,                                                             -- calculate the dial number length (eg. +65 = 2)
+            cdr.clg_num,                                                                                                        
+            LENGTH(CAST(cdr.clg_num AS STRING)) AS clg_length,                                                                  -- calculate the calling number's length
+            CAST(CAST(cld_num AS BIGINT) AS STRING) AS cld_num,                                                                 -- if first letter if called number is '0', remove it 
+            LENGTH(CAST(CAST(cld_num AS BIGINT) AS STRING)) AS cld_length,
+            LENGTH(CAST(cdr.clg_num AS STRING)) - LENGTH(CAST(CAST(cld_num AS BIGINT) AS STRING)) AS len_diff                                                              -- calculate the called number's length
         FROM 
             roam352_report.data_cdr cdr
             JOIN country_codes cc ON (cdr.clg_mcc_ref = cc.mcc_ref)
@@ -32,17 +33,17 @@ WITH
             AND cdr.par_bound_type = 1                                                                                          -- inbound only
             AND cdr.par_month = 202506                                                                                          -- specific date 
             AND (
-                (LENGTH(CAST(cdr.clg_num AS STRING)) - LENGTH(CAST(cdr.cld_num AS STRING)) >= 0) AND                            -- called number not longer than calling number
-                (LENGTH(CAST(cdr.clg_num AS STRING)) - LENGTH(CAST(cdr.cld_num AS STRING)) <= 3)                                -- and their difference not longer than dial number
+                (LENGTH(CAST(cdr.clg_num AS STRING)) - LENGTH(CAST(CAST(cld_num AS BIGINT) AS STRING)) >= 0) AND                            -- called number not longer than calling number
+                (LENGTH(CAST(cdr.clg_num AS STRING)) - LENGTH(CAST(CAST(cld_num AS BIGINT) AS STRING)) <= 3)                                -- and their difference not longer than dial number
             )
             AND LEFT(
-                    CAST(cdr.cld_num AS STRING),                                                                                -- check if leading number of called number similar to dial number
+                    CAST(CAST(cld_num AS BIGINT) AS STRING),                                                                                -- check if leading number of called number similar to dial number
                     LENGTH(CAST(cc.country_code AS STRING)) -                                                                   -- eg.  if length difference of clg_num and cld_num, "len_diff" is 2,
-                    (LENGTH(CAST(cdr.clg_num AS STRING)) - LENGTH(CAST(cdr.cld_num AS STRING)))                                 --      select first first(cld_num, dial number length - len_diff),
+                    (LENGTH(CAST(cdr.clg_num AS STRING)) - LENGTH(CAST(CAST(cld_num AS BIGINT) AS STRING)))                                 --      select first first(cld_num, dial number length - len_diff),
                 ) = RIGHT(                                                                                                      --      compare if it is the same as last(dial_no, dial number length - len_diff)
                     CAST(cc.country_code AS STRING),
                     LENGTH(CAST(cc.country_code AS STRING)) -                                                                   
-                    (LENGTH(CAST(cdr.clg_num AS STRING)) - LENGTH(CAST(cdr.cld_num AS STRING)))   
+                    (LENGTH(CAST(cdr.clg_num AS STRING)) - LENGTH(CAST(CAST(cld_num AS BIGINT) AS STRING)))   
                 )
             AND LENGTH(CAST(cdr.cld_num AS STRING)) <= 15                                                                       -- only if called number follow msisdn standard (limited to 15 digits)
             AND LEFT(CAST(cdr.clg_num AS STRING), LENGTH(CAST(cc.country_code AS STRING))) = CAST(cc.country_code AS STRING)    -- check if calling number start with their own dial number (eg. Singapore caller must start with +65) 
@@ -51,9 +52,9 @@ WITH
             cc.country_code,
             LENGTH(CAST(cc.country_code AS STRING)),
             cdr.clg_num,
-            cdr.cld_num 
+            CAST(CAST(cld_num AS BIGINT) AS STRING)
     ),
-    -- Calculate how many transaction each country has
+    -- Calculate how many transactions exists by country and msisdn length
     traffic AS (
         SELECT 
             clg_mcc_ref,
@@ -84,7 +85,7 @@ FROM (
         clg_length - cld_length AS len_diff,
         COUNT(*) as total_count
     FROM 
-        base_tbl
+        base_tbl 
     GROUP BY
         clg_mcc_ref,
         clg_length,
