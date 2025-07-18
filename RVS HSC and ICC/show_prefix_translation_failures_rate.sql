@@ -32,13 +32,13 @@ WITH
             AND cdr.par_bound_type = 1                                                                                  -- inbound only
             AND cdr.par_month = 202506                                                                                  -- specific date 
             AND (
-                (
+                (                                                                                                       -- the length difference between clg_num and cld_num must equal to 0 or length of corresponding dial number 
                     LENGTH (CAST(cdr.clg_num AS STRING)) - LENGTH (CAST(CAST(cld_num AS BIGINT) AS STRING)) = 0
                 )
-                OR                                                                                                      -- called number not longer than calling number
+                OR                                                                                                       
                 (
                     LENGTH (CAST(cdr.clg_num AS STRING)) - LENGTH (CAST(CAST(cld_num AS BIGINT) AS STRING)) = LENGTH (CAST(cc.country_code AS STRING))
-                )                                                                                                       -- and their difference not longer than dial number
+                )                                                                                                        
             )
             AND LEFT (
                 CAST(CAST(cld_num AS BIGINT) AS STRING),                                                                -- check if leading number of called number similar to dial number
@@ -78,9 +78,47 @@ WITH
         GROUP BY
             clg_mcc_ref,
             LENGTH (CAST(clg_num AS STRING))
-    ) 
+    ),
+    -- List all possible operators' mobile prefix in each country
+    operator_mobile_prefix AS (
+        SELECT
+            clg_mcc_ref,
+            dial_no, 
+            MIN(SUBSTR (regis_no, 1, 1)) AS min_p1,
+            MAX(SUBSTR (regis_no, 1, 1)) AS max_p1,
+            MIN(SUBSTR (regis_no, 2, 1)) AS min_p2,
+            MAX(SUBSTR (regis_no, 2, 1)) AS max_p2,
+            MIN(SUBSTR (regis_no, 3, 1)) AS min_p3,
+            MAX(SUBSTR (regis_no, 3, 1)) AS max_p3
+        FROM
+            (
+                SELECT
+                    cdr.clg_mcc_ref,
+                    cc.country_code AS dial_no,
+                    SUBSTR (
+                        CAST(cdr.clg_num AS STRING),
+                        LENGTH (CAST(cc.country_code AS STRING)) + 1,
+                        LENGTH (CAST(cdr.clg_num AS STRING)) - LENGTH (CAST(cc.country_code AS STRING))
+                    ) AS regis_no
+                FROM
+                    roam352_report.data_cdr cdr
+                    JOIN country_codes cc ON (cdr.clg_mcc_ref = cc.mcc_ref)
+                WHERE
+                    cdr.par_month = 202506
+                    AND cdr.service_type = 301
+                    AND cdr.par_bound_type = 1
+                GROUP BY
+                    cdr.clg_mcc_ref,
+                    cc.country_code,
+                    regis_no
+            ) tbl
+        GROUP BY
+            clg_mcc_ref,
+            dial_no 
+    )
 
-    
+ 
+
 SELECT
     tbl.clg_mcc_ref,
     tbl.clg_length,
