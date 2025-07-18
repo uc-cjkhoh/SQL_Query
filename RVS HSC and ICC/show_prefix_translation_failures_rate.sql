@@ -78,18 +78,17 @@ WITH
         GROUP BY
             clg_mcc_ref,
             LENGTH (CAST(clg_num AS STRING))
-    ),
-    -- List all possible operators' mobile prefix in each country
-    operator_mobile_prefix AS (
+    ), 
+    -- List all the unique first x digits of called number
+    unique_leading_digit AS (
         SELECT
             clg_mcc_ref,
             dial_no, 
-            MIN(SUBSTR (regis_no, 1, 1)) AS min_p1,
-            MAX(SUBSTR (regis_no, 1, 1)) AS max_p1,
-            MIN(SUBSTR (regis_no, 2, 1)) AS min_p2,
-            MAX(SUBSTR (regis_no, 2, 1)) AS max_p2,
-            MIN(SUBSTR (regis_no, 3, 1)) AS min_p3,
-            MAX(SUBSTR (regis_no, 3, 1)) AS max_p3
+            LENGTH(regis_no) as regis_len,
+            STRLEFT (regis_no, 1) AS p1,
+            STRLEFT (regis_no, 2) AS p2,
+            STRLEFT (regis_no, 3) AS p3,
+            STRLEFT (regis_no, 4) AS p4
         FROM
             (
                 SELECT
@@ -103,9 +102,8 @@ WITH
                 FROM
                     roam352_report.data_cdr cdr
                     JOIN country_codes cc ON (cdr.clg_mcc_ref = cc.mcc_ref)
-                WHERE
-                    cdr.par_month = 202506
-                    AND cdr.service_type = 301
+                WHERE 
+                    cdr.service_type = 301
                     AND cdr.par_bound_type = 1
                 GROUP BY
                     cdr.clg_mcc_ref,
@@ -114,7 +112,50 @@ WITH
             ) tbl
         GROUP BY
             clg_mcc_ref,
-            dial_no 
+            dial_no,
+            LENGTH(regis_no),
+            p1,
+            p2,
+            p3,
+            p4
+    ),
+    -- Find the most possible operator prefix for each country
+    operator_mobile_prefix AS (
+        SELECT 
+            clg_mcc_ref,
+            dial_no,
+            regis_len,
+            uniq_prefix_min_len - 1 AS true_len_of_prefix
+        FROM (
+            SELECT 
+                clg_mcc_ref,
+                dial_no,
+                regis_len,
+                MIN(LENGTH(CAST(prefix AS STRING))) as uniq_prefix_min_len
+            FROM (
+                SELECT 
+                    clg_mcc_ref,
+                    dial_no,
+                    regis_len,
+                    prefix,
+                    count
+                FROM (
+                    SELECT clg_mcc_ref, dial_no, regis_len, p1 AS prefix, count(*) AS count FROM unique_leading_digit GROUP BY clg_mcc_ref, dial_no, regis_len, p1
+                    UNION ALL
+                    SELECT clg_mcc_ref, dial_no, regis_len, p2 AS prefix, count(*) AS count FROM unique_leading_digit GROUP BY clg_mcc_ref, dial_no, regis_len, p2
+                    UNION ALL
+                    SELECT clg_mcc_ref, dial_no, regis_len, p3 AS prefix, count(*) AS count FROM unique_leading_digit GROUP BY clg_mcc_ref, dial_no, regis_len, p3
+                    UNION ALL
+                    SELECT clg_mcc_ref, dial_no, regis_len, p4 AS prefix, count(*) AS count FROM unique_leading_digit GROUP BY clg_mcc_ref, dial_no, regis_len, p4
+                ) tbl
+            ) tbl
+            WHERE 
+                count = 1
+            GROUP BY
+                clg_mcc_ref,
+                dial_no,
+                regis_len
+        ) tbl  
     )
 
  
